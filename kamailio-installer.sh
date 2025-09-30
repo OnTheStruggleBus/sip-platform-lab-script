@@ -1151,7 +1151,6 @@ package main
 
 import (
     "database/sql"
-    "encoding/json"
     "fmt"
     "html/template"
     "log"
@@ -1674,9 +1673,17 @@ install_crowdsec() {
     
     print_header "Installing CrowdSec Security"
     
+
     log_info "Installing CrowdSec..."
     curl -s https://install.crowdsec.net | sudo bash
-    
+
+    # Ensure cscli is available
+    if ! command -v cscli &>/dev/null; then
+        log_info "cscli not found, attempting manual install..."
+        apt-get update -qq
+        apt-get install -y crowdsec || log_error "Failed to install cscli"
+    fi
+
     # Install collections
     log_info "Installing security collections..."
     cscli collections install crowdsecurity/linux
