@@ -374,6 +374,14 @@ load_config() {
     fi
 }
 
+# Always load config before any major step (especially on resume)
+load_config_if_needed() {
+    if [[ -f "${CONFIG_FILE}" ]]; then
+        source "${CONFIG_FILE}"
+        log_debug "Configuration loaded from ${CONFIG_FILE} (auto)"
+    fi
+}
+
 save_credentials() {
     cat > "${PASSWORD_FILE}" << EOF
 ================================================================================
@@ -757,33 +765,8 @@ install_kamailio() {
     check_package_installed kamailio-xml-modules
     check_package_installed kamailio-json-modules
     
-    # Setup Kamailio database
-    setup_kamailio_database
-    
-    # Kill any process using SIP ports before starting Kamailio
-    kill_port 5060
-    kill_port 5061
-    # Wait for SIP ports to be free
-    wait_for_port_free 5060 30
-    wait_for_port_free 5061 30
-    sleep 2
-    # Pre-flight check before starting Kamailio
-    preflight_check_kamailio
-    # Enable and start Kamailio
-    systemctl enable kamailio
-    systemctl restart kamailio
-    # Verify Kamailio is running
-    if ! systemctl is-active --quiet kamailio; then
-        log_error "Kamailio service failed to start. Check systemctl status kamailio.service for details."
-        exit 1
-    fi
-    log_success "Kamailio service is running."
-    
-    log_success "Kamailio installed and configured"
-    save_checkpoint "KAMAILIO_INSTALLED"
-}
-
-setup_kamailio_database() {
+    # Always load config before DB operations
+    load_config_if_needed
     log_info "Setting up Kamailio database..."
     
     # Configure kamctlrc with our generated passwords
@@ -2091,7 +2074,7 @@ ${YELLOW}🌐 WEB INTERFACE:${NC}
     
 ${YELLOW}☎️  SIP CONFIGURATION:${NC}
     Domain:        ${DOMAIN_NAME}
-    UDP Port:      5060
+    UDP Port:            5060
     TCP Port:      5060
     TLS Port:      5061
     RTP Ports:     10000-20000
@@ -2268,3 +2251,19 @@ main() {
 
 # Run main function with all arguments
 main "$@"
+
+# If Kamailio fails to start, print diagnostics
+kamailio_failure_diagnostics() {
+    echo -e "\n${RED}Kamailio failed to start. Gathering diagnostics...${NC}" | tee -a "${ERROR_LOG}"
+    echo -e "\n--- systemctl status kamailio.service ---" | tee -a "${ERROR_LOG}"
+    systemctl status kamailio.service 2>&1 | tee -a "${ERROR_LOG}"
+    echo -e "\n--- journalctl -xeu kamailio.service (last 40 lines) ---" | tee -a "${ERROR_LOG}"
+    journalctl -xeu kamailio.service | tail -n 40 2>&1 | tee -a "${ERROR_LOG}"
+    if [[ -f /var/log/kamailio/kamailio.log ]]; then
+        echo -e "\n--- /var/log/kamailio/kamailio.log (last 40 lines) ---" | tee -a "${ERROR_LOG}"
+        tail -n 40 /var/log/kamailio/kamailio.log | tee -a "${ERROR_LOG}"
+    fi
+    echo -e "\n--- kamailio -c config check ---" | tee -a "${ERROR_LOG}"
+    kamailio -c -f /etc/kamailio/kamailio.cfg 2>&1 | tee -a "${ERROR_LOG}"
+    echo -e "\n${RED}See ${ERROR_LOG} for full details.${NC}"
+}
