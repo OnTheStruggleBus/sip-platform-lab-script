@@ -1624,42 +1624,78 @@ install_apache() {
     # Enable required modules
     a2enmod proxy proxy_http headers rewrite ssl
     
-    # Create virtual host configuration
+    # Create HTTP virtual host configuration
     cat > /etc/apache2/sites-available/kamailio-ui.conf << EOF
 <VirtualHost *:80>
     ServerName ${DOMAIN_NAME}
     ServerAdmin admin@${DOMAIN_NAME}
-    
+
     # Proxy to Go application
     ProxyPreserveHost On
     ProxyPass / http://localhost:8080/
     ProxyPassReverse / http://localhost:8080/
-    
+
     # WebSocket support
     RewriteEngine On
     RewriteCond %{HTTP:Upgrade} websocket [NC]
     RewriteCond %{HTTP:Connection} upgrade [NC]
-    RewriteRule ^/?(.*) "ws://localhost:8080/\$1" [P,L]
-    
+    RewriteRule ^/?(.*) "ws://localhost:8080/$1" [P,L]
+
     # Security headers
     Header always set X-Content-Type-Options "nosniff"
     Header always set X-Frame-Options "DENY"
     Header always set X-XSS-Protection "1; mode=block"
-    
+
     # Logging
-    ErrorLog \${APACHE_LOG_DIR}/kamailio-ui-error.log
-    CustomLog \${APACHE_LOG_DIR}/kamailio-ui-access.log combined
+    ErrorLog ${APACHE_LOG_DIR}/kamailio-ui-error.log
+    CustomLog ${APACHE_LOG_DIR}/kamailio-ui-access.log combined
 </VirtualHost>
 EOF
-    
+
+    # If cert email is specified, add HTTPS virtual host
+    if [[ -n "${CERT_EMAIL}" ]]; then
+        cat > /etc/apache2/sites-available/kamailio-ui-ssl.conf << EOF
+<VirtualHost *:443>
+    ServerName ${DOMAIN_NAME}
+    ServerAdmin admin@${DOMAIN_NAME}
+
+    SSLEngine on
+    SSLCertificateFile /etc/letsencrypt/live/${DOMAIN_NAME}/fullchain.pem
+    SSLCertificateKeyFile /etc/letsencrypt/live/${DOMAIN_NAME}/privkey.pem
+
+    # Proxy to Go application
+    ProxyPreserveHost On
+    ProxyPass / http://localhost:8080/
+    ProxyPassReverse / http://localhost:8080/
+
+    # WebSocket support
+    RewriteEngine On
+    RewriteCond %{HTTP:Upgrade} websocket [NC]
+    RewriteCond %{HTTP:Connection} upgrade [NC]
+    RewriteRule ^/?(.*) "ws://localhost:8080/$1" [P,L]
+
+    # Security headers
+    Header always set X-Content-Type-Options "nosniff"
+    Header always set X-Frame-Options "DENY"
+    Header always set X-XSS-Protection "1; mode=block"
+
+    # Logging
+    ErrorLog ${APACHE_LOG_DIR}/kamailio-ui-ssl-error.log
+    CustomLog ${APACHE_LOG_DIR}/kamailio-ui-ssl-access.log combined
+</VirtualHost>
+EOF
+        a2enmod ssl
+        a2ensite kamailio-ui-ssl
+    fi
+
     # Enable site and disable default
     a2ensite kamailio-ui
     a2dissite 000-default
-    
+
     # Restart Apache
     systemctl restart apache2
     systemctl enable apache2
-    
+
     log_success "Apache configured as reverse proxy"
     save_checkpoint "APACHE_INSTALLED"
 }
@@ -1742,7 +1778,13 @@ EOF
     # Restart CrowdSec
     systemctl restart crowdsec
     systemctl enable crowdsec
-    
+
+    if ! systemctl is-active --quiet crowdsec; then
+        log_warning "CrowdSec service failed to start. See 'systemctl status crowdsec.service' and 'journalctl -xeu crowdsec.service' for details. Script will continue."
+    else
+        log_success "CrowdSec service is running."
+    fi
+
     log_success "CrowdSec security installed"
     save_checkpoint "CROWDSEC_INSTALLED"
 }
