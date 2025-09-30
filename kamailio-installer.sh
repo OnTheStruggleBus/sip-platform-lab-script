@@ -2087,7 +2087,7 @@ ${YELLOW}📋 SYSTEM INFORMATION:${NC}
     
 ${YELLOW}🌐 WEB INTERFACE:${NC}
     URL:           http://${DOMAIN_NAME}/
-    Direct:        http://${SERVER_IP}:8080/
+    Direct:        http://${SERVER_IP}:8090/
     
 ${YELLOW}☎️  SIP CONFIGURATION:${NC}
     Domain:        ${DOMAIN_NAME}
@@ -2126,10 +2126,11 @@ ${YELLOW}📁 IMPORTANT FILES:${NC}
     
 ${YELLOW}📝 NEXT STEPS:${NC}
     1. Review credentials:     sudo cat ${PASSWORD_FILE}
-    2. Access web interface:     http://${DOMAIN_NAME}/
-    3. Configure SIP clients:   Use domain ${DOMAIN_NAME} with test accounts
-    4. Monitor security:        cscli metrics
-    5. View Kamailio logs:     tail -f /var/log/kamailio/kamailio.log
+    2. Access web interface:   http://${DOMAIN_NAME}/
+    3. Direct Web UI:          http://${SERVER_IP}:8090/
+    4. Configure SIP clients:  Use domain ${DOMAIN_NAME} with test accounts
+    5. Monitor security:       cscli metrics
+    6. View Kamailio logs:     tail -f /var/log/kamailio/kamailio.log
     
 EOF
 
