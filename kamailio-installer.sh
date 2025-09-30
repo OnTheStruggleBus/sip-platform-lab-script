@@ -37,91 +37,6 @@ IFS=$'\n\t'
 # CONFIGURATION VARIABLES
 # ==============================================================================
 
-readonly SCRIPT_VERSION="3.0.0"
-readonly SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-readonly LOG_DIR="/var/log/kamailio-installer"
-readonly CHECKPOINT_FILE="${LOG_DIR}/install.checkpoint"
-readonly CONFIG_FILE="${LOG_DIR}/install.conf"
-readonly PASSWORD_FILE="/root/.kamailio-credentials"
-readonly INSTALL_LOG="${LOG_DIR}/install.log"
-readonly ERROR_LOG="${LOG_DIR}/error.log"
-
-# Installation options
-DOMAIN_NAME=""
-SERVER_IP=""
-CERT_EMAIL=""
-RESUME_MODE=false
-DEBUG_MODE=false
-SKIP_CROWDSEC=false
-
-# Database passwords (will be generated)
-MYSQL_ROOT_PASSWORD=""
-KAMAILIO_DB_PASSWORD=""
-KAMAILIO_RO_PASSWORD=""
-GO_UI_DB_PASSWORD=""
-CROWDSEC_DB_PASSWORD=""
-
-# System information
-OS_ID=""
-OS_VERSION=""
-OS_CODENAME=""
-
-# Colors for output
-readonly RED='\033[0;31m'
-readonly GREEN='\033[0;32m'
-readonly YELLOW='\033[1;33m'
-readonly BLUE='\033[0;34m'
-readonly MAGENTA='\033[0;35m'
-readonly CYAN='\033[0;36m'
-readonly WHITE='\033[1;37m'
-readonly NC='\033[0m' # No Color
-
-# ==============================================================================
-# LOGGING FUNCTIONS
-# ==============================================================================
-
-log() {
-    local level="$1"
-    shift
-    local message="$*"
-    local timestamp=$(date +'%Y-%m-%d %H:%M:%S')
-    echo -e "[${timestamp}] [${level}] ${message}" | tee -a "${INSTALL_LOG}"
-    
-    if [[ "${level}" == "ERROR" ]]; then
-        echo "[${timestamp}] ${message}" >> "${ERROR_LOG}"
-    fi
-}
-
-log_info() { log "INFO" "${BLUE}ℹ${NC}  $*"; }
-log_success() { log "SUCCESS" "${GREEN}✓${NC}  $*"; }
-log_warning() { log "WARNING" "${YELLOW}⚠${NC}  $*"; }
-log_error() { 
-    log "ERROR" "${RED}✗${NC}  $*"
-    echo -e "\n${RED}Installation failed. Check ${ERROR_LOG} for details.${NC}"
-    exit 1
-}
-log_debug() { 
-    if [[ "${DEBUG_MODE}" == true ]]; then
-        log "DEBUG" "${MAGENTA}◆${NC}  $*"
-    fi
-}
-
-print_header() {
-    echo -e "\n${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-    echo -e "${WHITE}  $1${NC}"
-    echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}\n"
-}
-
-# ==============================================================================
-# UTILITY FUNCTIONS
-# ==============================================================================
-
-backup_database() {
-    local db_name="$1"
-    local backup_file="/tmp/${db_name}_backup_$(date +%Y%m%d_%H%M%S).sql"
-    
-    log_info "Creating backup of ${db_name} database..."
-    
     if mysqldump -u root -p"${MYSQL_ROOT_PASSWORD}" "${db_name}" > "${backup_file}" 2>/dev/null; then
         log_success "Database backed up to: ${backup_file}"
         echo "${backup_file}"
@@ -2219,19 +2134,11 @@ main() {
             configure_firewall
             ;&
         "FIREWALL_CONFIGURED")
-            create_test_accounts
-            ;&
-        "TEST_ACCOUNTS_CREATED")
             prepare_tls
             ;&
         "TLS_PREPARED")
             start_services
-            ;&
-        "SERVICES_STARTED")
-            save_credentials
-            show_summary
-            ;&
-        "COMPLETE")
+            # ...existing code...
             log_success "Installation complete!"
             ;;
         *)
