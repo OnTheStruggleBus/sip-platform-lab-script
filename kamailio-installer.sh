@@ -760,13 +760,24 @@ install_kamailio() {
     # Setup Kamailio database
     setup_kamailio_database
     
-    # Wait for SIP ports to be free before starting Kamailio
+    # Kill any process using SIP ports before starting Kamailio
+    kill_port 5060
+    kill_port 5061
+    # Wait for SIP ports to be free
     wait_for_port_free 5060 30
     wait_for_port_free 5061 30
-    # Wait for a moment after SSL setup
     sleep 2
     # Pre-flight check before starting Kamailio
     preflight_check_kamailio
+    # Enable and start Kamailio
+    systemctl enable kamailio
+    systemctl restart kamailio
+    # Verify Kamailio is running
+    if ! systemctl is-active --quiet kamailio; then
+        log_error "Kamailio service failed to start. Check systemctl status kamailio.service for details."
+        exit 1
+    fi
+    log_success "Kamailio service is running."
     
     log_success "Kamailio installed and configured"
     save_checkpoint "KAMAILIO_INSTALLED"
@@ -1975,6 +1986,17 @@ EOF
     fi
     
     save_checkpoint "TEST_ACCOUNTS_CREATED"
+}
+
+# Kill any process using a port
+kill_port() {
+    local port="$1"
+    local pids
+    pids=$(lsof -t -i :$port 2>/dev/null)
+    if [[ -n "$pids" ]]; then
+        log_warning "Killing processes using port $port: $pids"
+        kill -9 $pids || true
+    fi
 }
 
 wait_for_port_free() {
