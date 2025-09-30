@@ -760,6 +760,11 @@ install_kamailio() {
     # Setup Kamailio database
     setup_kamailio_database
     
+    # Wait for SIP ports to be free before starting Kamailio
+    wait_for_port_free 5060 30
+    wait_for_port_free 5061 30
+    # Wait for a moment after SSL setup
+    sleep 2
     # Pre-flight check before starting Kamailio
     preflight_check_kamailio
     
@@ -1972,6 +1977,21 @@ EOF
     save_checkpoint "TEST_ACCOUNTS_CREATED"
 }
 
+wait_for_port_free() {
+    local port="$1"
+    local timeout="${2:-30}"
+    local waited=0
+    while lsof -i :$port &>/dev/null; do
+        if (( waited >= timeout )); then
+            log_error "Port $port is still in use after $timeout seconds. Aborting."
+            exit 1
+        fi
+        log_info "Waiting for port $port to become free... ($waited/$timeout)"
+        sleep 2
+        ((waited+=2))
+    done
+}
+
 start_services() {
     print_header "Starting Services"
     
@@ -2084,7 +2104,7 @@ ${YELLOW}📁 IMPORTANT FILES:${NC}
     
 ${YELLOW}📝 NEXT STEPS:${NC}
     1. Review credentials:     sudo cat ${PASSWORD_FILE}
-    2. Access web interface:   http://${DOMAIN_NAME}/
+    2. Access web interface:     http://${DOMAIN_NAME}/
     3. Configure SIP clients:   Use domain ${DOMAIN_NAME} with test accounts
     4. Monitor security:        cscli metrics
     5. View Kamailio logs:     tail -f /var/log/kamailio/kamailio.log
