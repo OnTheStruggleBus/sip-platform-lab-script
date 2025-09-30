@@ -995,6 +995,13 @@ modparam("pike", "remove_latency", 4)
 # ----- htable params -----
 modparam("htable", "htable", "ipban=>size=8;autoexpire=300;")
 
+# ----- tls params -----
+modparam("tls", "tls_method", "TLSv1.2+")
+modparam("tls", "certificate", "/etc/kamailio/tls/cert.pem")
+modparam("tls", "private_key", "/etc/kamailio/tls/key.pem")
+modparam("tls", "verify_certificate", 0)
+modparam("tls", "require_certificate", 0)
+
 ####### Routing Logic ########
 
 request_route {
@@ -2033,33 +2040,46 @@ start_services() {
 
 prepare_tls() {
     print_header "Preparing TLS Configuration"
-    
+
     if [[ -n "${CERT_EMAIL}" ]]; then
         log_info "Installing Certbot for Let's Encrypt..."
         apt-get install -y -qq certbot python3-certbot-apache
         check_package_installed certbot
         check_package_installed python3-certbot-apache
-        
+
         log_info "Certificate request command prepared:"
         echo "certbot --apache -d ${DOMAIN_NAME} --email ${CERT_EMAIL} --agree-tos --non-interactive"
-        
+
         log_info "Run the above command after DNS is configured for ${DOMAIN_NAME}"
-    else
-        log_info "Generating self-signed certificate..."
-        
+
+        log_info "Generating temporary self-signed certificate for TLS..."
         mkdir -p /etc/kamailio/tls
-        
+
         openssl req -new -newkey rsa:4096 -x509 -sha256 -days 365 -nodes \
             -out /etc/kamailio/tls/cert.pem \
             -keyout /etc/kamailio/tls/key.pem \
             -subj "/C=US/ST=State/L=City/O=Organization/CN=${DOMAIN_NAME}"
-        
+
         chmod 600 /etc/kamailio/tls/key.pem
-        chown kamailio:kamailio /etc/kamailio/tls/*
-        
-        log_success "Self-signed certificate generated"
+        chown kamailio:kamailio /etc/kamailio/tls/* 2>/dev/null || true
+
+        log_success "Temporary self-signed certificate generated (will be replaced by Let's Encrypt)"
+    else
+        log_info "Generating self-signed certificate for TLS..."
+        mkdir -p /etc/kamailio/tls
+
+        openssl req -new -newkey rsa:4096 -x509 -sha256 -days 365 -nodes \
+            -out /etc/kamailio/tls/cert.pem \
+            -keyout /etc/kamailio/tls/key.pem \
+            -subj "/C=US/ST=State/L=City/O=Organization/CN=${DOMAIN_NAME}"
+
+        chmod 600 /etc/kamailio/tls/key.pem
+        chown kamailio:kamailio /etc/kamailio/tls/* 2>/dev/null || true
+
+        log_success "Self-signed certificate generated for TLS"
+        log_info "Note: Self-signed certificates are not trusted by default. Use --cert-email for Let's Encrypt."
     fi
-    
+
     save_checkpoint "TLS_PREPARED"
 }
 
@@ -2205,6 +2225,9 @@ main() {
             install_kamailio
             ;&
         "KAMAILIO_INSTALLED")
+            prepare_tls
+            ;&
+        "TLS_PREPARED")
             configure_kamailio
             ;&
         "KAMAILIO_CONFIGURED")
@@ -2223,12 +2246,15 @@ main() {
             configure_firewall
             ;&
         "FIREWALL_CONFIGURED")
-            prepare_tls
-            ;&
-        "TLS_PREPARED")
             start_services
-            # ...existing code...
-            log_success "Installation complete!"
+            ;&
+        "SERVICES_STARTED")
+            create_test_accounts
+            ;&
+        "TEST_ACCOUNTS_CREATED")
+            save_credentials
+            show_summary
+            save_checkpoint "COMPLETE"
             ;;
         *)
             log_error "Unknown checkpoint: ${CHECKPOINT}"
