@@ -39,6 +39,13 @@ CROWDSEC_DB_PASSWORD=""
 set -euo pipefail
 IFS=$'\n\t'
 
+# Ensure script is running under bash
+if [ -z "$BASH_VERSION" ]; then
+    echo "This script must be run with bash, not sh or dash."
+    echo "Try: sudo bash $0"
+    exit 1
+fi
+
 # ==============================================================================
 # CONFIGURATION VARIABLES
 # ==============================================================================
