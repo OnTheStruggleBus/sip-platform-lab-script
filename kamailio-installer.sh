@@ -920,8 +920,11 @@ log_facility=LOG_LOCAL0
 fork=yes
 children=8
 tcp_children=8
-port=5060
-tls_port=5061
+
+####### Listen addresses #########
+listen=udp:0.0.0.0:5060
+listen=tcp:0.0.0.0:5060
+listen=tls:0.0.0.0:5061
 
 ####### Modules Section ########
 loadmodule "db_mysql.so"
@@ -1170,7 +1173,17 @@ local0.*                        -/var/log/kamailio/kamailio.log
 EOF
     
     systemctl restart rsyslog
-    
+
+    # Validate Kamailio configuration
+    log_info "Validating Kamailio configuration..."
+    if kamailio -c -f /etc/kamailio/kamailio.cfg 2>&1 | tee /tmp/kamailio-check.log; then
+        log_success "Kamailio configuration is valid"
+    else
+        log_error "Kamailio configuration has errors. Check /tmp/kamailio-check.log"
+        cat /tmp/kamailio-check.log
+        exit 1
+    fi
+
     log_success "Kamailio configuration completed"
     save_checkpoint "KAMAILIO_CONFIGURED"
 }
@@ -2011,30 +2024,65 @@ wait_for_port_free() {
 
 start_services() {
     print_header "Starting Services"
-    
+
     log_info "Starting all services..."
-    
+
+    # Start services one by one with error checking
+    log_info "Starting rsyslog..."
     systemctl restart rsyslog
+
+    log_info "Starting MariaDB..."
     systemctl restart mariadb
-    systemctl restart kamailio
+    if ! systemctl is-active --quiet mariadb; then
+        log_error "MariaDB failed to start. Check: systemctl status mariadb"
+    fi
+
+    log_info "Starting Kamailio..."
+    if ! systemctl restart kamailio 2>/dev/null; then
+        log_error "Kamailio failed to start. Showing diagnostics..."
+        echo "=== systemctl status kamailio ==="
+        systemctl status kamailio --no-pager || true
+        echo ""
+        echo "=== journalctl -xeu kamailio (last 30 lines) ==="
+        journalctl -xeu kamailio --no-pager -n 30 || true
+        echo ""
+        echo "=== /var/log/kamailio/kamailio.log (last 30 lines) ==="
+        tail -n 30 /var/log/kamailio/kamailio.log 2>/dev/null || echo "Log file not found"
+        echo ""
+        echo "=== Kamailio config check ==="
+        kamailio -c -f /etc/kamailio/kamailio.cfg || true
+        log_error "Kamailio startup failed. See diagnostics above."
+    fi
+
+    log_info "Starting Kamailio Web UI..."
     systemctl restart kamailio-webui
+    if ! systemctl is-active --quiet kamailio-webui; then
+        log_warning "Kamailio Web UI failed to start. Check: systemctl status kamailio-webui"
+    fi
+
+    log_info "Starting Apache..."
     systemctl restart apache2
-    
+    if ! systemctl is-active --quiet apache2; then
+        log_warning "Apache failed to start. Check: systemctl status apache2"
+    fi
+
     if [[ "${SKIP_CROWDSEC}" != true ]]; then
+        log_info "Starting CrowdSec..."
         systemctl restart crowdsec
     fi
-    
+
     # Verify services
-    sleep 5
-    
+    sleep 3
+
+    log_info "Verifying service status..."
     for service in mariadb kamailio kamailio-webui apache2; do
         if systemctl is-active --quiet ${service}; then
             log_success "${service} is running"
         else
-            log_warning "${service} may have issues - check logs"
+            log_warning "${service} is not running - check logs"
         fi
     done
-    
+
     save_checkpoint "SERVICES_STARTED"
 }
 
