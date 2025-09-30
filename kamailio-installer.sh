@@ -1,15 +1,9 @@
-# Initialize DB password variables to avoid unbound errors
-MYSQL_ROOT_PASSWORD=""
-KAMAILIO_DB_PASSWORD=""
-KAMAILIO_RO_PASSWORD=""
-GO_UI_DB_PASSWORD=""
-CROWDSEC_DB_PASSWORD=""
 #!/bin/bash
 #
 # Kamailio Installation Script with Go-based UI and CrowdSec Security
 # For Vintage Telephony Research and Hobbyist Community
 # Version: 3.0.0
-# 
+#
 # Requirements:
 # - Ubuntu 22.04 LTS or 24.04 LTS (clean installation)
 # - Minimum 2GB RAM, 20GB disk space
@@ -26,7 +20,7 @@ CROWDSEC_DB_PASSWORD=""
 #
 # Usage:
 #   sudo ./install-kamailio.sh [OPTIONS]
-#   
+#
 # Options:
 #   --domain FQDN        Set fully qualified domain name
 #   --ip IP_ADDRESS      Set server IP (auto-detected if not set)
@@ -39,6 +33,13 @@ CROWDSEC_DB_PASSWORD=""
 set -euo pipefail
 IFS=$'\n\t'
 
+# Initialize DB password variables to avoid unbound errors
+MYSQL_ROOT_PASSWORD=""
+KAMAILIO_DB_PASSWORD=""
+KAMAILIO_RO_PASSWORD=""
+GO_UI_DB_PASSWORD=""
+CROWDSEC_DB_PASSWORD=""
+
 # Ensure script is running under bash
 if [ -z "$BASH_VERSION" ]; then
     echo "This script must be run with bash, not sh or dash."
@@ -49,6 +50,82 @@ fi
 # ==============================================================================
 # CONFIGURATION VARIABLES
 # ==============================================================================
+
+SCRIPT_VERSION="3.0.0"
+SCRIPT_NAME="$(basename "$0")"
+
+# Directories and files
+LOG_DIR="/var/log/kamailio-installer"
+INSTALL_LOG="${LOG_DIR}/install.log"
+ERROR_LOG="${LOG_DIR}/error.log"
+CONFIG_FILE="/root/.kamailio-installer.conf"
+PASSWORD_FILE="/root/.kamailio-credentials"
+CHECKPOINT_FILE="/root/.kamailio-checkpoint"
+
+# Command-line options (will be set by parse_arguments)
+DOMAIN_NAME=""
+SERVER_IP=""
+RESUME_MODE=false
+DEBUG_MODE=false
+SKIP_CROWDSEC=false
+CERT_EMAIL=""
+
+# System detection (will be set by detect_system)
+OS_ID=""
+OS_VERSION=""
+OS_CODENAME=""
+
+# Color codes for output
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+CYAN='\033[0;36m'
+WHITE='\033[1;37m'
+NC='\033[0m' # No Color
+
+# ==============================================================================
+# LOGGING FUNCTIONS
+# ==============================================================================
+
+log_info() {
+    echo -e "${BLUE}[INFO]${NC} $1" | tee -a "${INSTALL_LOG}"
+}
+
+log_success() {
+    echo -e "${GREEN}[SUCCESS]${NC} $1" | tee -a "${INSTALL_LOG}"
+}
+
+log_warning() {
+    echo -e "${YELLOW}[WARNING]${NC} $1" | tee -a "${INSTALL_LOG}"
+}
+
+log_error() {
+    echo -e "${RED}[ERROR]${NC} $1" | tee -a "${ERROR_LOG}"
+    exit 1
+}
+
+log_debug() {
+    if [[ "${DEBUG_MODE}" == true ]]; then
+        echo -e "${CYAN}[DEBUG]${NC} $1" | tee -a "${INSTALL_LOG}"
+    fi
+}
+
+print_header() {
+    echo "" | tee -a "${INSTALL_LOG}"
+    echo -e "${CYAN}═══════════════════════════════════════════════════${NC}" | tee -a "${INSTALL_LOG}"
+    echo -e "${WHITE}$1${NC}" | tee -a "${INSTALL_LOG}"
+    echo -e "${CYAN}═══════════════════════════════════════════════════${NC}" | tee -a "${INSTALL_LOG}"
+    echo "" | tee -a "${INSTALL_LOG}"
+}
+
+# ==============================================================================
+# DATABASE UTILITY FUNCTIONS
+# ==============================================================================
+
+backup_database() {
+    local db_name="$1"
+    local backup_file="/tmp/${db_name}_backup_$(date +%Y%m%d_%H%M%S).sql"
 
     if mysqldump -u root -p"${MYSQL_ROOT_PASSWORD}" "${db_name}" > "${backup_file}" 2>/dev/null; then
         log_success "Database backed up to: ${backup_file}"
@@ -61,13 +138,13 @@ fi
 
 export_kamailio_users() {
     local export_file="/tmp/kamailio_users_$(date +%Y%m%d_%H%M%S).csv"
-    
+
     log_info "Exporting existing users..."
-    
+
     mysql -u root -p"${MYSQL_ROOT_PASSWORD}" -D kamailio -e \
         "SELECT username, domain, ha1, email, rpid FROM subscriber;" \
         | tr '\t' ',' > "${export_file}" 2>/dev/null
-    
+
     if [[ -s "${export_file}" ]]; then
         log_success "Users exported to: ${export_file}"
         return 0
@@ -79,18 +156,18 @@ export_kamailio_users() {
 
 verify_database_schema() {
     local db_name="$1"
-    
+
     # Check critical tables exist
     local required_tables=("subscriber" "location" "acc" "version")
     local missing_tables=()
-    
+
     for table in "${required_tables[@]}"; do
         if ! mysql -u root -p"${MYSQL_ROOT_PASSWORD}" -D "${db_name}" \
             -e "SELECT 1 FROM ${table} LIMIT 1;" &>/dev/null; then
             missing_tables+=("${table}")
         fi
     done
-    
+
     if [[ ${#missing_tables[@]} -eq 0 ]]; then
         return 0  # Schema is valid
     else
@@ -2117,13 +2194,12 @@ main() {
     
     # Installation flow with checkpoint support
     case "${CHECKPOINT}" in
-               "START")
+        "START")
             install_base_packages
             ;&
         "BASE_PACKAGES_INSTALLED")
-                       install_mariadb
+            install_mariadb
             save_config  # Save passwords
-           
             ;&
         "MARIADB_INSTALLED")
             install_kamailio
