@@ -564,7 +564,6 @@ install_base_packages() {
         dnsutils \
         tcpdump \
         sngrep \
-        ufw \
         fail2ban \
         rsyslog \
         logrotate \
@@ -1622,7 +1621,11 @@ install_apache() {
     apt-get install -y -qq apache2 || log_error "Failed to install Apache"
     
     # Enable required modules
-    a2enmod proxy proxy_http headers rewrite ssl
+    a2enmod proxy proxy_http headers rewrite
+    # Only enable ssl if CERT_EMAIL is set
+    if [[ -n "${CERT_EMAIL}" ]]; then
+        a2enmod ssl
+    fi
     
     # Create HTTP virtual host configuration
     cat > /etc/apache2/sites-available/kamailio-ui.conf << EOF
@@ -1639,7 +1642,7 @@ install_apache() {
     RewriteEngine On
     RewriteCond %{HTTP:Upgrade} websocket [NC]
     RewriteCond %{HTTP:Connection} upgrade [NC]
-    RewriteRule ^/?(.*) "ws://localhost:8080/$1" [P,L]
+    RewriteRule ^/?(.*) "ws://localhost:8080/\$1" [P,L]
 
     # Security headers
     Header always set X-Content-Type-Options "nosniff"
@@ -1672,7 +1675,7 @@ EOF
     RewriteEngine On
     RewriteCond %{HTTP:Upgrade} websocket [NC]
     RewriteCond %{HTTP:Connection} upgrade [NC]
-    RewriteRule ^/?(.*) "ws://localhost:8080/$1" [P,L]
+    RewriteRule ^/?(.*) "ws://localhost:8080/\$1" [P,L]
 
     # Security headers
     Header always set X-Content-Type-Options "nosniff"
@@ -1684,7 +1687,6 @@ EOF
     CustomLog ${APACHE_LOG_DIR}/kamailio-ui-ssl-access.log combined
 </VirtualHost>
 EOF
-        a2enmod ssl
         a2ensite kamailio-ui-ssl
     fi
 
@@ -1774,8 +1776,8 @@ EOF
     
     # Install firewall bouncer
     apt-get install -y -qq crowdsec-firewall-bouncer-iptables
-    
-    # Restart CrowdSec
+
+    # Restart CrowdSec after all components are installed
     systemctl restart crowdsec
     systemctl enable crowdsec
 
@@ -1785,41 +1787,19 @@ EOF
         log_success "CrowdSec service is running."
     fi
 
+    # Check for both UFW and nftables
+    if systemctl is-active --quiet nftables && systemctl is-active --quiet ufw; then
+        log_warning "Both UFW and nftables are active. This may cause conflicts. It is recommended to use only one firewall unless you have a specific reason."
+    fi
+
     log_success "CrowdSec security installed"
     save_checkpoint "CROWDSEC_INSTALLED"
 }
 
 configure_firewall() {
     print_header "Configuring Firewall"
-    
-    log_info "Configuring UFW firewall..."
-    
-    # Set default policies
-    ufw --force default deny incoming
-    ufw --force default allow outgoing
-    
-    # Allow SSH
-    ufw allow 22/tcp comment 'SSH'
-    
-    # Allow HTTP/HTTPS
-    ufw allow 80/tcp comment 'HTTP'
-    ufw allow 443/tcp comment 'HTTPS'
-    
-    # Allow SIP
-    ufw allow 5060/udp comment 'SIP UDP'
-    ufw allow 5060/tcp comment 'SIP TCP'
-    ufw allow 5061/tcp comment 'SIP TLS'
-    
-    # Allow RTP
-    ufw allow 10000:20000/udp comment 'RTP Media'
-    
-    # Allow CrowdSec dashboard (optional)
-    ufw allow 3000/tcp comment 'CrowdSec Dashboard'
-    
-    # Enable firewall
-    ufw --force enable
-    
-    log_success "Firewall configured"
+    log_info "No UFW configuration will be applied. Please configure your preferred firewall manually if needed."
+    log_success "Firewall configuration step skipped (no UFW)."
     save_checkpoint "FIREWALL_CONFIGURED"
 }
 
