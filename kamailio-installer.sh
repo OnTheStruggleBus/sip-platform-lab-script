@@ -1,3 +1,9 @@
+# Initialize DB password variables to avoid unbound errors
+MYSQL_ROOT_PASSWORD=""
+KAMAILIO_DB_PASSWORD=""
+KAMAILIO_RO_PASSWORD=""
+GO_UI_DB_PASSWORD=""
+CROWDSEC_DB_PASSWORD=""
 #!/bin/bash
 #
 # Kamailio Installation Script with Go-based UI and CrowdSec Security
