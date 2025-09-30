@@ -171,6 +171,24 @@ verify_database_schema() {
     fi
 }
 
+# Check if a package is installed, else error and exit
+check_package_installed() {
+    local pkg="$1"
+    if ! dpkg -s "$pkg" &>/dev/null; then
+        log_error "Required package '$pkg' is not installed. Aborting."
+        exit 1
+    fi
+}
+
+# Check if a command is available, else error and exit
+check_command_exists() {
+    local cmd="$1"
+    if ! command -v "$cmd" &>/dev/null; then
+        log_error "Required command '$cmd' is missing. Aborting."
+        exit 1
+    fi
+}
+
 # ==============================================================================
 # HELPER FUNCTIONS
 # ==============================================================================
@@ -592,6 +610,8 @@ install_mariadb() {
     # Install MariaDB
     log_info "Installing MariaDB server..."
     apt-get install -y -qq mariadb-server mariadb-client || log_error "Failed to install MariaDB"
+    check_package_installed mariadb-server
+    check_package_installed mariadb-client
     
     # Start and enable MariaDB
     systemctl start mariadb
@@ -693,9 +713,19 @@ install_kamailio() {
         kamailio-xml-modules \
         kamailio-json-modules \
         || log_error "Failed to install Kamailio"
+    check_package_installed kamailio
+    check_package_installed kamailio-mysql-modules
+    check_package_installed kamailio-tls-modules
+    check_package_installed kamailio-websocket-modules
+    check_package_installed kamailio-presence-modules
+    check_package_installed kamailio-xml-modules
+    check_package_installed kamailio-json-modules
     
     # Setup Kamailio database
     setup_kamailio_database
+    
+    # Pre-flight check before starting Kamailio
+    preflight_check_kamailio
     
     log_success "Kamailio installed and configured"
     save_checkpoint "KAMAILIO_INSTALLED"
@@ -1563,17 +1593,17 @@ func loadTemplates() *template.Template {
 GOEOF
     
     # Create configuration file
-    cat > config.yaml << EOF
+    cat > config.yaml << 'EOF'
 server:
-  host: "0.0.0.0"
-  port: "8080"
+    host: "0.0.0.0"
+    port: "8090"
 
 database:
-  host: "localhost"
-  port: "3306"
-  user: "kamailioro"
-  password: "${KAMAILIO_RO_PASSWORD}"
-  name: "kamailio"
+    host: "localhost"
+    port: "3306"
+    user: "kamailioro"
+    password: "${KAMAILIO_RO_PASSWORD}"
+    name: "kamailio"
 EOF
     
     # Download dependencies
@@ -1619,6 +1649,7 @@ install_apache() {
     
     log_info "Installing Apache..."
     apt-get install -y -qq apache2 || log_error "Failed to install Apache"
+    check_package_installed apache2
     
     # Enable required modules
     a2enmod proxy proxy_http headers rewrite
@@ -1635,14 +1666,14 @@ install_apache() {
 
     # Proxy to Go application
     ProxyPreserveHost On
-    ProxyPass / http://localhost:8080/
-    ProxyPassReverse / http://localhost:8080/
+    ProxyPass / http://localhost:8090/
+    ProxyPassReverse / http://localhost:8090/
 
     # WebSocket support
     RewriteEngine On
     RewriteCond %{HTTP:Upgrade} websocket [NC]
     RewriteCond %{HTTP:Connection} upgrade [NC]
-    RewriteRule ^/?(.*) "ws://localhost:8080/\$1" [P,L]
+    RewriteRule ^/?(.*) "ws://localhost:8090/\$1" [P,L]
 
     # Security headers
     Header always set X-Content-Type-Options "nosniff"
@@ -1668,14 +1699,14 @@ EOF
 
     # Proxy to Go application
     ProxyPreserveHost On
-    ProxyPass / http://localhost:8080/
-    ProxyPassReverse / http://localhost:8080/
+    ProxyPass / http://localhost:8090/
+    ProxyPassReverse / http://localhost:8090/
 
     # WebSocket support
     RewriteEngine On
     RewriteCond %{HTTP:Upgrade} websocket [NC]
     RewriteCond %{HTTP:Connection} upgrade [NC]
-    RewriteRule ^/?(.*) "ws://localhost:8080/\$1" [P,L]
+    RewriteRule ^/?(.*) "ws://localhost:8090/\$1" [P,L]
 
     # Security headers
     Header always set X-Content-Type-Options "nosniff"
@@ -1720,6 +1751,7 @@ install_crowdsec() {
         log_info "cscli not found, attempting manual install..."
         apt-get update -qq
         apt-get install -y crowdsec || log_error "Failed to install cscli"
+        check_package_installed crowdsec
     fi
 
     # Install collections
@@ -1776,6 +1808,7 @@ EOF
     
     # Install firewall bouncer
     apt-get install -y -qq crowdsec-firewall-bouncer-iptables
+    check_package_installed crowdsec-firewall-bouncer-iptables
 
     # Restart CrowdSec after all components are installed
     systemctl restart crowdsec
@@ -1938,6 +1971,8 @@ prepare_tls() {
     if [[ -n "${CERT_EMAIL}" ]]; then
         log_info "Installing Certbot for Let's Encrypt..."
         apt-get install -y -qq certbot python3-certbot-apache
+        check_package_installed certbot
+        check_package_installed python3-certbot-apache
         
         log_info "Certificate request command prepared:"
         echo "certbot --apache -d ${DOMAIN_NAME} --email ${CERT_EMAIL} --agree-tos --non-interactive"
@@ -2092,12 +2127,13 @@ main() {
     
     # Installation flow with checkpoint support
     case "${CHECKPOINT}" in
-        "START")
+               "START")
             install_base_packages
             ;&
         "BASE_PACKAGES_INSTALLED")
-            install_mariadb
+                       install_mariadb
             save_config  # Save passwords
+           
             ;&
         "MARIADB_INSTALLED")
             install_kamailio
