@@ -1650,8 +1650,8 @@ install_apache() {
     Header always set X-XSS-Protection "1; mode=block"
 
     # Logging
-    ErrorLog ${APACHE_LOG_DIR}/kamailio-ui-error.log
-    CustomLog ${APACHE_LOG_DIR}/kamailio-ui-access.log combined
+    ErrorLog /var/log/apache2/kamailio-ui-error.log
+    CustomLog /var/log/apache2/kamailio-ui-access.log combined
 </VirtualHost>
 EOF
 
@@ -1683,8 +1683,8 @@ EOF
     Header always set X-XSS-Protection "1; mode=block"
 
     # Logging
-    ErrorLog ${APACHE_LOG_DIR}/kamailio-ui-ssl-error.log
-    CustomLog ${APACHE_LOG_DIR}/kamailio-ui-ssl-access.log combined
+    ErrorLog /var/log/apache2/kamailio-ui-ssl-error.log
+    CustomLog /var/log/apache2/kamailio-ui-ssl-access.log combined
 </VirtualHost>
 EOF
         a2ensite kamailio-ui-ssl
