@@ -189,6 +189,42 @@ check_command_exists() {
     fi
 }
 
+# Pre-flight check for Kamailio service
+preflight_check_kamailio() {
+    print_header "Pre-flight: Checking Kamailio dependencies"
+
+    # Check MariaDB is running
+    if ! systemctl is-active --quiet mariadb && ! systemctl is-active --quiet mysql; then
+        log_error "MariaDB/MySQL service is not running. Please start it before continuing."
+        exit 1
+    fi
+
+    # Check Kamailio DB credentials (using values from config or env)
+    local db_user="${KAMAILIO_DB_USER:-kamailio}"
+    local db_pass="${KAMAILIO_DB_PASSWORD:-kamailio}"
+    local db_name="${KAMAILIO_DB_NAME:-kamailio}"
+    if ! mysql -u"$db_user" -p"$db_pass" -e "USE $db_name;" 2>/dev/null; then
+        log_error "Cannot connect to MariaDB with user '$db_user' and database '$db_name'. Check credentials and DB existence."
+        exit 1
+    fi
+
+    # Check required Kamailio modules exist
+    local mod_dir="/usr/lib/x86_64-linux-gnu/kamailio/modules"
+    local missing_mods=()
+    local required_mods=(db_mysql.so jsonrpcs.so kex.so corex.so tm.so tmx.so sl.so rr.so pv.so maxfwd.so usrloc.so registrar.so textops.so textopsx.so siputils.so xlog.so sanity.so ctl.so cfg_rpc.so acc.so auth.so auth_db.so alias_db.so domain.so presence.so presence_xml.so nathelper.so rtpengine.so tls.so htable.so pike.so dispatcher.so)
+    for mod in "${required_mods[@]}"; do
+        if [ ! -f "$mod_dir/$mod" ]; then
+            missing_mods+=("$mod")
+        fi
+    done
+    if [ ${#missing_mods[@]} -ne 0 ]; then
+        log_error "Missing Kamailio modules: ${missing_mods[*]}"
+        exit 1
+    fi
+
+    log_success "All Kamailio pre-flight checks passed."
+}
+
 # ==============================================================================
 # HELPER FUNCTIONS
 # ==============================================================================
